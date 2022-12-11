@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
+	"strings"
 	"github.com/m1guelpf/chatgpt-telegram/src/chatgpt"
 	"github.com/m1guelpf/chatgpt-telegram/src/config"
 	"github.com/m1guelpf/chatgpt-telegram/src/session"
@@ -41,8 +41,7 @@ func main() {
 	if err := envConfig.ValidateWithDefaults(); err != nil {
 		log.Fatalf("Invalid .env config: %v", err)
 	}
-
-	bot, err := tgbot.New(envConfig.TelegramToken, time.Duration(envConfig.EditWaitSeconds))
+	bot, err := tgbot.New(envConfig.TelegramToken, time.Duration(envConfig.EditWaitSeconds)*time.Second)
 	if err != nil {
 		log.Fatalf("Couldn't start Telegram bot: %v", err)
 	}
@@ -67,6 +66,9 @@ func main() {
 			updateChatID    = update.Message.Chat.ID
 			updateMessageID = update.Message.MessageID
 			updateUserID    = update.Message.From.ID
+			isChatBotInGroup = update.Message.Chat.IsGroup() || update.Message.Chat.IsSuperGroup()
+                        isAtChatBot = strings.HasPrefix(update.Message.Text, "@"+bot.Username) || strings.HasSuffix(update.Message.Text, "@"+bot.Username)
+                        isPrivateChat = update.Message.Chat.IsPrivate()
 		)
 
 		if len(envConfig.TelegramID) != 0 && !envConfig.HasTelegramID(updateUserID) {
@@ -75,7 +77,8 @@ func main() {
 			continue
 		}
 
-		if !update.Message.IsCommand() {
+		if !update.Message.IsCommand() && (isPrivateChat || (isChatBotInGroup && isAtChatBot)) {
+			log.Printf("[ChatID: %d][UserID: %s (%d)] %s", updateChatID, update.Message.From.UserName, updateUserID, updateText)
 			bot.SendTyping(updateChatID)
 
 			feed, err := chatGPT.SendMessage(updateText, updateChatID)
@@ -84,6 +87,8 @@ func main() {
 			} else {
 				bot.SendAsLiveOutput(updateChatID, updateMessageID, feed)
 			}
+			continue
+		}else{
 			continue
 		}
 
